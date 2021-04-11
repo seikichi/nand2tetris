@@ -161,8 +161,37 @@ module Code {
     }[mnemonic]!;
   }
 
-  export function comp(mnemonic: string | undefined): string {
-    return "0000000";
+  export function comp(mnemonic: string): string {
+    return {
+      "0": "0101010",
+      "1": "0111111",
+      "-1": "0111010",
+      D: "0001100",
+      A: "0110000",
+      "!D": "0001101",
+      "!A": "0110001",
+      "-D": "0001111",
+      "-A": "0110011",
+      "D+1": "0011111",
+      "A+1": "0110111",
+      "D-1": "0001110",
+      "A-1": "0110010",
+      "D+A": "0000010",
+      "D-A": "0010011",
+      "A-D": "0000111",
+      "D&A": "0000000",
+      "D|A": "0010101",
+      M: "1110000",
+      "!M": "1110001",
+      "-M": "1110011",
+      "M+1": "1110111",
+      "M-1": "1110010",
+      "D+M": "1000010",
+      "D-M": "1010011",
+      "M-D": "1000111",
+      "D&M": "1000000",
+      "D|M": "1010101",
+    }[mnemonic]!;
   }
 
   export function jump(mnemonic: string | undefined): string {
@@ -223,27 +252,57 @@ class SymbolTable {
 }
 
 const table = new SymbolTable();
-const parser = new Parser(INPUT_PATH);
+
+// First
+let parser = new Parser(INPUT_PATH);
+let current = 0;
+while (parser.hasMoreCommands()) {
+  parser.advance();
+
+  switch (parser.commandType()) {
+    case "A_COMMAND":
+      current++;
+      break;
+    case "C_COMMAND":
+      current++;
+      break;
+    case "L_COMMAND":
+      table.addEntry(parser.symbol(), current);
+      break;
+  }
+}
+
+// Second
+parser = new Parser(INPUT_PATH);
+let next = 16;
+const lines = [];
+
 while (parser.hasMoreCommands()) {
   parser.advance();
 
   switch (parser.commandType()) {
     case "A_COMMAND":
       const symbol = parser.symbol();
-      const address = symbol.match(/[0-9]+/)
-        ? parseInt(symbol, 10)
-        : table.getAddress(symbol);
-      console.log(`0${address.toString(2).padStart(15, "0")}`);
+      let address: number;
+      if (symbol.match(/[0-9]+/)) {
+        address = parseInt(symbol, 10);
+      } else {
+        if (!table.contains(symbol)) {
+          table.addEntry(symbol, next++);
+        }
+        address = table.getAddress(symbol);
+      }
+      lines.push(`0${address.toString(2).padStart(15, "0")}`);
       break;
     case "C_COMMAND":
       const dest = Code.dest(parser.dest());
       const comp = Code.comp(parser.comp());
       const jump = Code.jump(parser.jump());
-      // FIXME
-      console.log(`111${comp}${dest}${jump}`);
+      lines.push(`111${comp}${dest}${jump}`);
       break;
     case "L_COMMAND":
-      // TODO
       break;
   }
 }
+
+fs.writeFileSync(OUTPUT_PATH, lines.join("\n"));
