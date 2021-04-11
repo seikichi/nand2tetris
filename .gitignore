@@ -3,7 +3,9 @@
 *.out
 *.hack
 
-06/
+node_modules
+06/*/*.asm
+
 07/
 08/
 09/
