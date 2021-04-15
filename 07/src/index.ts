@@ -6,7 +6,7 @@ if (process.argv.length !== 3) {
 }
 
 const INPUT_PATH = process.argv[2];
-// const OUTPUT_PATH = INPUT_PATH.replace(/\.vm$/, ".asm"); // TODO: Support directory
+const OUTPUT_PATH = INPUT_PATH.replace(/\.vm$/, ".asm"); // TODO: Support directory
 
 type Command =
   | { type: "ARITHMETIC"; args: [string] }
@@ -81,26 +81,65 @@ async function* parse(items: AsyncIterable<string>): AsyncIterable<Command> {
 }
 
 class CodeWriter {
+  private readonly stream: fs.WriteStream;
+
+  constructor(path: string) {
+    this.stream = fs.createWriteStream(OUTPUT_PATH);
+  }
+
+  private out(str: string) {
+    this.stream.write(`${str}\n`);
+  }
+
   write(command: Command) {
     // FIXME: write to file, not stdout
-    if (command.type === "ARITHMETIC" && command.args[0] === "add") {
-      console.log("@SP");
-      console.log("M=M-1");
-      console.log("A=M-1");
-      console.log("D=M");
-      console.log("A=A+1");
-      console.log("D=D+M");
-      console.log("A=A-1");
-      console.log("M=D");
+    // *(SP-2) == x, (*SP-1) == y
+    // NOTE: true = -1, false = 0
+    // eq: x = y
+    // ge: x > y
+    // lt: x < y
+    if (command.type === "ARITHMETIC" && command.args[0] === "neg") {
+      this.out("@SP\n");
+      this.out("A=M-1");
+      this.out("M=-M");
+    }
+    if (command.type === "ARITHMETIC" && command.args[0] === "not") {
+      this.out("@SP");
+      this.out("A=M-1");
+      this.out("M=!M");
+    }
+
+    if (command.type === "ARITHMETIC") {
+      this.out("@SP");
+      this.out("M=M-1");
+      this.out("A=M");
+      this.out("D=M");
+      this.out("A=A-1");
+      switch (command.args[0]) {
+        case "add":
+          this.out("M=M+D");
+          break;
+        case "sub":
+          this.out("M=M-D");
+          break;
+        case "and":
+          this.out("M=D&M");
+          break;
+        case "or":
+          this.out("M=D|M");
+          break;
+        default:
+          throw "uninplemented";
+      }
     }
     if (command.type === "PUSH" && command.args[0] === "constant") {
       const constant = parseInt(command.args[1], 10);
-      console.log(`@${constant}`);
-      console.log("D=A");
-      console.log("@SP");
-      console.log("M=M+1");
-      console.log("A=M-1");
-      console.log("M=D");
+      this.out(`@${constant}`);
+      this.out("D=A");
+      this.out("@SP");
+      this.out("M=M+1");
+      this.out("A=M-1");
+      this.out("M=D");
     }
     // Do nothing ...
   }
@@ -113,7 +152,7 @@ const createInputStream = (path: string) => {
 
 (async function main() {
   const rl = createInputStream(INPUT_PATH);
-  const writer = new CodeWriter();
+  const writer = new CodeWriter(OUTPUT_PATH);
   for await (const command of parse(rl)) {
     writer.write(command);
   }
