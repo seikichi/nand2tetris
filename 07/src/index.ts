@@ -1,12 +1,6 @@
 import * as fs from "fs";
+import * as path from "path";
 import * as readline from "readline";
-
-if (process.argv.length !== 3) {
-  throw "assembler: missing operand"; // FIXME
-}
-
-const INPUT_PATH = process.argv[2];
-const OUTPUT_PATH = INPUT_PATH.replace(/\.vm$/, ".asm"); // TODO: Support directory
 
 const ARITH_LOGIC_COMMANDS = [
   "add",
@@ -126,7 +120,7 @@ function translateCommand(
       ];
     }
 
-    const label = `__ARITHMETIC__.${uniqueNumber}`; // FIXME
+    const label = `$ARITHMETIC.${filename}.${uniqueNumber}`;
     const jump = {
       eq: "JEQ",
       lt: "JLT",
@@ -212,6 +206,7 @@ function translateCommand(
   }
   // LABEL, GOTO, IF_GOTO
   if (command.type === "LABEL") {
+    // FIXME: the label should be "functionName$label".
     return [`(${command.args[0]})`];
   }
   if (command.type === "GOTO") {
@@ -220,7 +215,7 @@ function translateCommand(
   if (command.type === "IF_GOTO") {
     return ["@SP", "M=M-1", "A=M", "D=M", `@${command.args[0]}`, "D;JNE"];
   }
-  // FUNCTION, RETURN, CALL
+  // FUNCTION, RETURN
   if (command.type === "FUNCTION") {
     const [f, k] = command.args;
     return [
@@ -230,9 +225,24 @@ function translateCommand(
   }
   if (command.type === "RETURN") {
     return [
+      // FRAME = LCL
+      "@LCL",
+      "D=M",
+      "@R13",
+      "M=D",
+      // RET = *(FRAME-5)
+      "@R13",
+      "D=M",
+      "@5",
+      "A=D-A",
+      "D=M",
+      "@R14",
+      "M=D",
       // *ARG = POP
       "@SP",
-      "A=M-1",
+      "M=M-1",
+      "A=M",
+      // "A=M-1",
       "D=M",
       "@ARG",
       "A=M",
@@ -241,11 +251,6 @@ function translateCommand(
       "@ARG",
       "D=M+1",
       "@SP",
-      "M=D",
-      // FRAME = LCL
-      "@LCL",
-      "D=M",
-      "@R13",
       "M=D",
       // THAT = *(FRAME - 1)
       "@R13",
@@ -279,18 +284,52 @@ function translateCommand(
       "D=M",
       "@LCL",
       "M=D",
-      // RET = *(FRAME-5)
       // goto RET
-      "@R13",
-      "D=M",
-      "@5",
-      "A=D-A",
+      "@R14",
       "A=M",
       "0;JMP",
     ];
   }
+  // CALL
+  const pushA = ["D=A", "@SP", "M=M+1", "A=M-1", "M=D"];
+  const pushM = ["D=M", "@SP", "M=M+1", "A=M-1", "M=D"];
 
-  throw `Unknown command: ${command}`;
+  const [f, n] = command.args;
+  const address = `$RETURN.${filename}.${uniqueNumber}`;
+  return [
+    // push return-address
+    `@${address}`,
+    ...pushA,
+    // push LCL
+    "@LCL",
+    ...pushM,
+    // push ARG
+    "@ARG",
+    ...pushM,
+    // push THIS
+    "@THIS",
+    ...pushM,
+    // push THAT
+    "@THAT",
+    ...pushM,
+    // ARG = SP - n - 5
+    "@SP",
+    "D=M",
+    `@${n + 5}`,
+    "D=D-A",
+    "@ARG",
+    "M=D",
+    // LCL = SP
+    "@SP",
+    "D=M",
+    "@LCL",
+    "M=D",
+    // goto f
+    `@${f}`,
+    "0;JMP",
+    // (return address)
+    `(${address})`,
+  ];
 }
 
 async function* translate(
@@ -311,12 +350,78 @@ const createInputStream = (path: string) => {
   return readline.createInterface({ input, crlfDelay: Infinity });
 };
 
-(async function main() {
-  const rl = createInputStream(INPUT_PATH);
-  const out = fs.createWriteStream(OUTPUT_PATH);
+function getSources(p: string): string[] {
+  const stat = fs.statSync(p);
+  const files = stat.isDirectory()
+    ? fs.readdirSync(p).map((f) => path.join(p, f))
+    : [p];
+  return files.filter((f) => f.match(/\.vm$/));
+}
 
-  // FIXME
-  for await (const op of translate(parse(rl), "FOO")) {
+function getOutputPath(p: string): string {
+  const stat = fs.statSync(p);
+  if (stat.isDirectory()) {
+    const filename = `${path.basename(p)}.asm`;
+    return path.join(p, filename);
+  } else {
+    return p.replace(/\.vm$/, ".asm");
+  }
+}
+
+const START_UP = [
+  // @SP
+  "@256",
+  "D=A",
+  "@SP",
+  "M=D",
+  // @LCL
+  "@300",
+  "D=A",
+  "@LCL",
+  "M=D",
+  // @ARG
+  "@400",
+  "D=A",
+  "@ARG",
+  "M=D",
+  // @THIS
+  "@3000",
+  "D=A",
+  "@THIS",
+  "M=D",
+  // @THAT
+  "@4000",
+  "D=A",
+  "@THAT",
+  "M=D",
+  // Call Sys.init
+  ...translateCommand({ type: "CALL", args: ["Sys.init", 0] }, "$STARTUP", 0),
+];
+
+if (process.argv.length !== 3) {
+  throw "assembler: missing operand"; // FIXME
+}
+
+const INPUT_PATH = process.argv[2];
+
+(async function main() {
+  const sources = getSources(INPUT_PATH);
+  if (sources.length === 0) {
+    throw "No .vm file";
+  }
+
+  const out = fs.createWriteStream(getOutputPath(INPUT_PATH));
+
+  for (const op of START_UP) {
     out.write(`${op}\n`);
+  }
+
+  for (const s of sources) {
+    const input = createInputStream(s);
+    const name = path.basename(s, ".vm");
+
+    for await (const op of translate(parse(input), name)) {
+      out.write(`${op}\n`);
+    }
   }
 })();
