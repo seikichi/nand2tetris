@@ -88,6 +88,9 @@ async function* parse(items: AsyncIterable<string>): AsyncIterable<Command> {
   }
 }
 
+// FIXME: Remove this global variable...
+let functionName = "";
+
 function translateCommand(
   command: Command,
   filename: string,
@@ -206,18 +209,21 @@ function translateCommand(
   }
   // LABEL, GOTO, IF_GOTO
   if (command.type === "LABEL") {
-    // FIXME: the label should be "functionName$label".
-    return [`(${command.args[0]})`];
+    const label = `${functionName}$${command.args[0]}`;
+    return [`(${label})`];
   }
   if (command.type === "GOTO") {
-    return [`@${command.args[0]}`, `0;JMP`];
+    const label = `${functionName}$${command.args[0]}`;
+    return [`@${label}`, `0;JMP`];
   }
   if (command.type === "IF_GOTO") {
-    return ["@SP", "M=M-1", "A=M", "D=M", `@${command.args[0]}`, "D;JNE"];
+    const label = `${functionName}$${command.args[0]}`;
+    return ["@SP", "M=M-1", "A=M", "D=M", `@${label}`, "D;JNE"];
   }
   // FUNCTION, RETURN
   if (command.type === "FUNCTION") {
     const [f, k] = command.args;
+    functionName = f;
     return [
       `(${f})`,
       ...new Array(k).fill(0).flatMap(() => ["@SP", "M=M+1", "A=M-1", "M=0"]),
