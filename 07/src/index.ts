@@ -41,7 +41,7 @@ type Command =
   | { type: "POP"; args: [SEGMENT_TYPE, number] }
   | { type: "LABEL"; args: [string] }
   | { type: "GOTO"; args: [string] }
-  | { type: "IF"; args: [string] }
+  | { type: "IF_GOTO"; args: [string] }
   | { type: "FUNCTION"; args: [string, string] }
   | { type: "RETURN" }
   | { type: "CALL"; args: [string, string] };
@@ -52,15 +52,15 @@ const COMMAND_TO_TYPE: { [command: string]: Command["type"] } = {
   pop: "POP",
   label: "LABEL",
   goto: "GOTO",
-  "if-goto": "IF",
+  "if-goto": "IF_GOTO",
   function: "FUNCTION",
   call: "CALL",
   return: "RETURN",
 };
 
 function parseLine(raw: string): Command | null {
-  const line = raw.replace(/\/\/.*$/, "");
-  if (line.trim() === "") {
+  const line = raw.replace(/\/\/.*$/, "").trim();
+  if (line === "") {
     return null;
   }
 
@@ -133,7 +133,7 @@ function translateCommand(
       ];
     }
 
-    const label = `__ARITHMETIC__.${uniqueNumber}`;
+    const label = `__ARITHMETIC__.${uniqueNumber}`; // FIXME
     const jump = {
       eq: "JEQ",
       lt: "JLT",
@@ -217,6 +217,16 @@ function translateCommand(
       "M=D",
     ];
   }
+  // LABEL, GOTO, IF_GOTO
+  if (command.type === "LABEL") {
+    return [`(${command.args[0]})`];
+  }
+  if (command.type === "GOTO") {
+    return [`@${command.args[0]}`, `0;JMP`];
+  }
+  if (command.type === "IF_GOTO") {
+    return ["@SP", "M=M-1", "A=M", "D=M", `@${command.args[0]}`, "D;JNE"];
+  }
 
   throw `Unknown command: ${command}`;
 }
@@ -243,6 +253,7 @@ const createInputStream = (path: string) => {
   const rl = createInputStream(INPUT_PATH);
   const out = fs.createWriteStream(OUTPUT_PATH);
 
+  // FIXME
   for await (const op of translate(parse(rl), "FOO")) {
     out.write(`${op}\n`);
   }
