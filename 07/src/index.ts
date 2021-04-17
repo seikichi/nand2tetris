@@ -42,9 +42,9 @@ type Command =
   | { type: "LABEL"; args: [string] }
   | { type: "GOTO"; args: [string] }
   | { type: "IF_GOTO"; args: [string] }
-  | { type: "FUNCTION"; args: [string, string] }
+  | { type: "FUNCTION"; args: [string, number] }
   | { type: "RETURN" }
-  | { type: "CALL"; args: [string, string] };
+  | { type: "CALL"; args: [string, number] };
 
 const COMMAND_TO_TYPE: { [command: string]: Command["type"] } = {
   ...Object.fromEntries(ARITH_LOGIC_COMMANDS.map((c) => [c, "ARITHMETIC"])),
@@ -75,20 +75,13 @@ function parseLine(raw: string): Command | null {
   if (terms.length === 2) {
     return { type: COMMAND_TO_TYPE[terms[0]] as any, args: [terms[1]] };
   }
-  if (terms.length === 3 && (terms[0] == "push" || terms[0] === "pop")) {
-    return {
-      type: COMMAND_TO_TYPE[terms[0]] as any,
-      args: [terms[1] as SEGMENT_TYPE, parseInt(terms[2], 10)],
-    };
-  }
   if (terms.length === 3) {
     return {
       type: COMMAND_TO_TYPE[terms[0]] as any,
-      args: [terms[1], terms[2]],
+      args: [terms[1] as any, parseInt(terms[2], 10)],
     };
   }
-
-  return null;
+  throw `Unknown Command: ${raw}`;
 }
 
 async function* parse(items: AsyncIterable<string>): AsyncIterable<Command> {
@@ -226,6 +219,75 @@ function translateCommand(
   }
   if (command.type === "IF_GOTO") {
     return ["@SP", "M=M-1", "A=M", "D=M", `@${command.args[0]}`, "D;JNE"];
+  }
+  // FUNCTION, RETURN, CALL
+  if (command.type === "FUNCTION") {
+    const [f, k] = command.args;
+    return [
+      `(${f})`,
+      ...new Array(k).fill(0).flatMap(() => ["@SP", "M=M+1", "A=M-1", "M=0"]),
+    ];
+  }
+  if (command.type === "RETURN") {
+    return [
+      // *ARG = POP
+      "@SP",
+      "A=M-1",
+      "D=M",
+      "@ARG",
+      "A=M",
+      "M=D",
+      // SP = ARG + 1
+      "@ARG",
+      "D=M+1",
+      "@SP",
+      "M=D",
+      // FRAME = LCL
+      "@LCL",
+      "D=M",
+      "@R13",
+      "M=D",
+      // THAT = *(FRAME - 1)
+      "@R13",
+      "D=M",
+      "@1",
+      "A=D-A",
+      "D=M",
+      "@THAT",
+      "M=D",
+      // THIS = *(FRAME - 2)
+      "@R13",
+      "D=M",
+      "@2",
+      "A=D-A",
+      "D=M",
+      "@THIS",
+      "M=D",
+      // ARG  = *(FRAME - 3)
+      "@R13",
+      "D=M",
+      "@3",
+      "A=D-A",
+      "D=M",
+      "@ARG",
+      "M=D",
+      // LCL  = *(FRAME - 4)
+      "@R13",
+      "D=M",
+      "@4",
+      "A=D-A",
+      "D=M",
+      "@LCL",
+      "M=D",
+      // RET = *(FRAME-5)
+      // goto RET
+      "@R13",
+      "D=M",
+      "@5",
+      "A=D-A",
+      "A=M",
+      "0;JMP",
+    ];
   }
 
   throw `Unknown command: ${command}`;
