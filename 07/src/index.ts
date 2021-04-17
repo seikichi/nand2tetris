@@ -8,17 +8,6 @@ if (process.argv.length !== 3) {
 const INPUT_PATH = process.argv[2];
 const OUTPUT_PATH = INPUT_PATH.replace(/\.vm$/, ".asm"); // TODO: Support directory
 
-type Command =
-  | { type: "ARITHMETIC"; args: [string] }
-  | { type: "PUSH"; args: [string, string] }
-  | { type: "POP"; args: [string, string] }
-  | { type: "LABEL"; args: [string] }
-  | { type: "GOTO"; args: [string] }
-  | { type: "IF"; args: [string] }
-  | { type: "FUNCTION"; args: [string, string] }
-  | { type: "RETURN" }
-  | { type: "CALL"; args: [string, string] };
-
 const ARITH_LOGIC_COMMANDS = [
   "add",
   "sub",
@@ -29,7 +18,33 @@ const ARITH_LOGIC_COMMANDS = [
   "and",
   "or",
   "not",
-];
+] as const;
+
+type ARITH_LOGIC_COMMAND_TYPE = typeof ARITH_LOGIC_COMMANDS[number];
+
+const SEGMENTS = [
+  "argument",
+  "local",
+  "static",
+  "constant",
+  "this",
+  "that",
+  "pointer",
+  "temp",
+] as const;
+
+type SEGMENT_TYPE = typeof SEGMENTS[number];
+
+type Command =
+  | { type: "ARITHMETIC"; args: [ARITH_LOGIC_COMMAND_TYPE] }
+  | { type: "PUSH"; args: [SEGMENT_TYPE, number] }
+  | { type: "POP"; args: [SEGMENT_TYPE, number] }
+  | { type: "LABEL"; args: [string] }
+  | { type: "GOTO"; args: [string] }
+  | { type: "IF"; args: [string] }
+  | { type: "FUNCTION"; args: [string, string] }
+  | { type: "RETURN" }
+  | { type: "CALL"; args: [string, string] };
 
 const COMMAND_TO_TYPE: { [command: string]: Command["type"] } = {
   ...Object.fromEntries(ARITH_LOGIC_COMMANDS.map((c) => [c, "ARITHMETIC"])),
@@ -51,7 +66,7 @@ function parseLine(raw: string): Command | null {
 
   // TODO: remove any, redundant code...
   const terms = line.split(/\s+/);
-  if (terms.length === 1 && ARITH_LOGIC_COMMANDS.includes(terms[0])) {
+  if (terms.length === 1 && ARITH_LOGIC_COMMANDS.includes(terms[0] as any)) {
     return { type: COMMAND_TO_TYPE[terms[0]] as any, args: [terms[0]] };
   }
   if (terms.length === 1) {
@@ -59,6 +74,12 @@ function parseLine(raw: string): Command | null {
   }
   if (terms.length === 2) {
     return { type: COMMAND_TO_TYPE[terms[0]] as any, args: [terms[1]] };
+  }
+  if (terms.length === 3 && (terms[0] == "push" || terms[0] === "pop")) {
+    return {
+      type: COMMAND_TO_TYPE[terms[0]] as any,
+      args: [terms[1] as SEGMENT_TYPE, parseInt(terms[2], 10)],
+    };
   }
   if (terms.length === 3) {
     return {
@@ -80,89 +101,136 @@ async function* parse(items: AsyncIterable<string>): AsyncIterable<Command> {
   }
 }
 
-class CodeWriter {
-  private readonly stream: fs.WriteStream;
-  private counter: number;
+function translateCommand(
+  command: Command,
+  filename: string,
+  uniqueNumber: number
+): string[] {
+  // ARITHMETIC
+  if (command.type === "ARITHMETIC") {
+    const op = command.args[0];
 
-  constructor(path: string) {
-    this.stream = fs.createWriteStream(OUTPUT_PATH);
-    this.counter = 0;
+    if (op === "neg") {
+      return ["@SP", "A=M-1", "M=-M"];
+    }
+    if (op === "not") {
+      return ["@SP", "A=M-1", "M=!M"];
+    }
+
+    if (op === "add" || op === "sub" || op == "and" || op === "or") {
+      return [
+        "@SP",
+        "M=M-1",
+        "A=M",
+        "D=M",
+        "A=A-1",
+        {
+          add: "M=M+D",
+          sub: "M=M-D",
+          and: "M=M&D",
+          or: "M=D|M",
+        }[op],
+      ];
+    }
+
+    const label = `__ARITHMETIC__.${uniqueNumber}`;
+    const jump = {
+      eq: "JEQ",
+      lt: "JLT",
+      gt: "JGT",
+    }[op];
+    return [
+      "@SP",
+      "M=M-1",
+      "A=M",
+      "D=M",
+      "A=A-1",
+      "D=M-D",
+      "M=-1",
+      `@${label}`,
+      `D;${jump}`,
+      "@SP",
+      "A=M-1",
+      "M=0",
+      `(${label})`,
+    ];
+  }
+  // PUSH
+  if (command.type === "PUSH") {
+    const [segment, index] = command.args;
+    return [
+      ...{
+        argument: ["@ARG", "D=M", `@${index}`, "A=D+A", "D=M"],
+        local: ["@LCL", "D=M", `@${index}`, "A=D+A", "D=M"],
+        this: ["@THIS", "D=M", `@${index}`, "A=D+A", "D=M"],
+        that: ["@THAT", "D=M", `@${index}`, "A=D+A", "D=M"],
+        constant: [`@${index}`, "D=A"],
+        static: [`@${filename}.${index}`, "D=M"],
+        pointer: [["@THIS", "@THAT"][index], "D=M"],
+        temp: [`@R${index + 5}`, "D=M"],
+      }[segment],
+      "@SP",
+      "M=M+1",
+      "A=M-1",
+      "M=D",
+    ];
+  }
+  // POP
+  if (command.type === "POP") {
+    const [segment, index] = command.args;
+    if (segment === "constant") {
+      throw `Invalid POP: ${command}`;
+    }
+    if (segment === "static" || segment === "pointer" || segment === "temp") {
+      return [
+        "@SP",
+        "M=M-1",
+        "A=M",
+        "D=M",
+        {
+          static: `@${filename}.${index}`,
+          pointer: ["@THIS", "@THAT"][index],
+          temp: `@R${index + 5}`,
+        }[segment],
+        "M=D",
+      ];
+    }
+
+    return [
+      {
+        argument: "@ARG",
+        local: "@LCL",
+        this: "@THIS",
+        that: "@THAT",
+      }[segment],
+      "D=M",
+      `@${index}`,
+      "D=D+A",
+      "@R13",
+      "M=D",
+      "@SP",
+      "M=M-1",
+      "A=M",
+      "D=M",
+      "@R13",
+      "A=M",
+      "M=D",
+    ];
   }
 
-  private out(str: string) {
-    this.stream.write(`${str}\n`);
-  }
+  throw `Unknown command: ${command}`;
+}
 
-  private nextLabel() {
-    return `WRITER.${this.counter++}`;
-  }
-
-  write(command: Command) {
-    if (command.type === "ARITHMETIC" && command.args[0] === "neg") {
-      this.out("@SP");
-      this.out("A=M-1");
-      this.out("M=-M");
-      return;
+async function* translate(
+  items: AsyncIterable<Command>,
+  filename: string
+): AsyncIterable<string> {
+  let uniqueNumber = 0;
+  for await (const command of items) {
+    const ops = translateCommand(command, filename, uniqueNumber++);
+    for (const op of ops) {
+      yield op;
     }
-    if (command.type === "ARITHMETIC" && command.args[0] === "not") {
-      this.out("@SP");
-      this.out("A=M-1");
-      this.out("M=!M");
-      return;
-    }
-
-    if (command.type === "ARITHMETIC") {
-      this.out("@SP");
-      this.out("M=M-1");
-      this.out("A=M");
-      this.out("D=M");
-      this.out("A=A-1");
-      switch (command.args[0]) {
-        case "add":
-          this.out("M=M+D");
-          break;
-        case "sub":
-          this.out("M=M-D");
-          break;
-        case "and":
-          this.out("M=D&M");
-          break;
-        case "or":
-          this.out("M=D|M");
-          break;
-        case "eq":
-        case "lt":
-        case "gt":
-          const label = this.nextLabel();
-          const jump = {
-            eq: "JEQ",
-            lt: "JLT",
-            gt: "JGT",
-          }[command.args[0]];
-
-          this.out("D=M-D");
-          this.out("M=-1");
-          this.out(`@${label}`);
-          this.out(`D;${jump}`);
-          this.out("@SP");
-          this.out("A=M-1");
-          this.out("M=0");
-          this.out(`(${label})`);
-          break;
-        default:
-          throw `uninplemented ${command.args[0]}`;
-      }
-    }
-    if (command.type === "PUSH" && command.args[0] === "constant") {
-      const constant = parseInt(command.args[1], 10);
-      this.out(`@${constant}`);
-      this.out("D=A");
-      this.out("@SP");
-      this.out("M=M+1");
-      this.out("A=M-1");
-      this.out("M=D");
-    }
-    // Do nothing ...
   }
 }
 
@@ -173,8 +241,9 @@ const createInputStream = (path: string) => {
 
 (async function main() {
   const rl = createInputStream(INPUT_PATH);
-  const writer = new CodeWriter(OUTPUT_PATH);
-  for await (const command of parse(rl)) {
-    writer.write(command);
+  const out = fs.createWriteStream(OUTPUT_PATH);
+
+  for await (const op of translate(parse(rl), "FOO")) {
+    out.write(`${op}\n`);
   }
 })();
