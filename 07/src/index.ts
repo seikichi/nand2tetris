@@ -22,7 +22,7 @@ type Command =
 const ARITH_LOGIC_COMMANDS = [
   "add",
   "sub",
-  "neq",
+  "neg",
   "eq",
   "gt",
   "lt",
@@ -82,31 +82,33 @@ async function* parse(items: AsyncIterable<string>): AsyncIterable<Command> {
 
 class CodeWriter {
   private readonly stream: fs.WriteStream;
+  private counter: number;
 
   constructor(path: string) {
     this.stream = fs.createWriteStream(OUTPUT_PATH);
+    this.counter = 0;
   }
 
   private out(str: string) {
     this.stream.write(`${str}\n`);
   }
 
+  private nextLabel() {
+    return `WRITER.${this.counter++}`;
+  }
+
   write(command: Command) {
-    // FIXME: write to file, not stdout
-    // *(SP-2) == x, (*SP-1) == y
-    // NOTE: true = -1, false = 0
-    // eq: x = y
-    // ge: x > y
-    // lt: x < y
     if (command.type === "ARITHMETIC" && command.args[0] === "neg") {
-      this.out("@SP\n");
+      this.out("@SP");
       this.out("A=M-1");
       this.out("M=-M");
+      return;
     }
     if (command.type === "ARITHMETIC" && command.args[0] === "not") {
       this.out("@SP");
       this.out("A=M-1");
       this.out("M=!M");
+      return;
     }
 
     if (command.type === "ARITHMETIC") {
@@ -128,8 +130,27 @@ class CodeWriter {
         case "or":
           this.out("M=D|M");
           break;
+        case "eq":
+        case "lt":
+        case "gt":
+          const label = this.nextLabel();
+          const jump = {
+            eq: "JEQ",
+            lt: "JLT",
+            gt: "JGT",
+          }[command.args[0]];
+
+          this.out("D=M-D");
+          this.out("M=-1");
+          this.out(`@${label}`);
+          this.out(`D;${jump}`);
+          this.out("@SP");
+          this.out("A=M-1");
+          this.out("M=0");
+          this.out(`(${label})`);
+          break;
         default:
-          throw "uninplemented";
+          throw `uninplemented ${command.args[0]}`;
       }
     }
     if (command.type === "PUSH" && command.args[0] === "constant") {
