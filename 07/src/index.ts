@@ -88,12 +88,10 @@ async function* parse(items: AsyncIterable<string>): AsyncIterable<Command> {
   }
 }
 
-// FIXME: Remove this global variable...
-let functionName = "";
-
 function translateCommand(
   command: Command,
   filename: string,
+  functionName: string,
   uniqueNumber: number
 ): string[] {
   // ARITHMETIC
@@ -343,8 +341,18 @@ async function* translate(
   filename: string
 ): AsyncIterable<string> {
   let uniqueNumber = 0;
+  let functionName = "";
   for await (const command of items) {
-    const ops = translateCommand(command, filename, uniqueNumber++);
+    if (command.type === "FUNCTION") {
+      functionName = command.args[0];
+    }
+
+    const ops = translateCommand(
+      command,
+      filename,
+      functionName,
+      uniqueNumber++
+    );
     for (const op of ops) {
       yield op;
     }
@@ -401,7 +409,12 @@ const START_UP = [
   "@THAT",
   "M=D",
   // Call Sys.init
-  ...translateCommand({ type: "CALL", args: ["Sys.init", 0] }, "$STARTUP", 0),
+  ...translateCommand(
+    { type: "CALL", args: ["Sys.init", 0] },
+    "$STARTUP",
+    "",
+    0
+  ),
 ];
 
 if (process.argv.length !== 3) {
