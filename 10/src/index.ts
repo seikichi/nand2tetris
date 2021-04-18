@@ -182,12 +182,12 @@ type Class = {
 };
 
 type Statement =
-  | { type: "let"; var: string; index?: Expression; expression: Expression }
+  | { type: "let"; name: string; index?: Expression; expression: Expression }
   | {
       type: "if";
       predicate: Expression;
-      consequent: Expression;
-      alternative: Expression;
+      consequent: Statement[];
+      alternative?: Statement[];
     }
   | { type: "while"; predicate: Expression; statements: Statement[] }
   | { type: "do"; call: SubroutineCall }
@@ -387,6 +387,16 @@ function parseTypeOrVoid(tokens: Token[], p: number): [Type | "void", number] {
   return parseType(tokens, p);
 }
 
+function parseStatementList(tokens: Token[], p: number): [Statement[], number] {
+  const statements: Statement[] = [];
+  while (getSymbol(tokens, p) !== "}") {
+    const [st, np] = parseStatement(tokens, p);
+    statements.push(st);
+    p = np;
+  }
+  return [statements, p];
+}
+
 function parseSubroutineBody(
   tokens: Token[],
   p: number
@@ -399,7 +409,9 @@ function parseSubroutineBody(
     vars.push(varDec);
     p = np;
   }
-  const statements: Statement[] = []; //  FIXME
+
+  const [statements, np] = parseStatementList(tokens, p);
+  p = np;
 
   assertSymbol(tokens, p++, "}");
   return [{ vars, statements }, p];
@@ -420,6 +432,84 @@ function parseVarDec(tokens: Token[], p: number): [VarDec, number] {
   }
   assertSymbol(tokens, p++, ";");
   return [{ type, names }, p];
+}
+
+function parseStatement(tokens: Token[], p: number): [Statement, number] {
+  if (getKeyword(tokens, p) === "let") {
+    assertKeyword(tokens, p++, "let");
+    const name = getIdentifierOrDie(tokens, p++);
+    let index: Expression | undefined = undefined;
+    if (getSymbol(tokens, p) === "[") {
+      assertSymbol(tokens, p++, "[");
+      const [index, np] = parseExpression(tokens, p);
+      p = np;
+      assertSymbol(tokens, p++, "]");
+    }
+    assertSymbol(tokens, p++, "=");
+    const [expression, np] = parseExpression(tokens, p);
+    p = np;
+    assertSymbol(tokens, p++, ";");
+    return [{ type: "let", name, index, expression }, p];
+  } else if (getKeyword(tokens, p) === "if") {
+    assertKeyword(tokens, p++, "if");
+    assertSymbol(tokens, p++, "(");
+    const [predicate, np1] = parseExpression(tokens, p);
+    p = np1;
+    assertSymbol(tokens, p++, ")");
+    assertSymbol(tokens, p++, "{");
+    const [consequent, np2] = parseStatementList(tokens, p);
+    p = np2;
+    assertSymbol(tokens, p++, "}");
+
+    let alternative: Statement[] | undefined = undefined;
+    if (getKeyword(tokens, p) === "else") {
+      assertSymbol(tokens, p++, "{");
+      const [expression, np3] = parseStatementList(tokens, p);
+      alternative = expression;
+      p = np3;
+      assertSymbol(tokens, p++, "}");
+    }
+    return [{ type: "if", predicate, consequent, alternative }, p];
+  } else if (getKeyword(tokens, p) === "while") {
+    assertKeyword(tokens, p++, "while");
+    assertSymbol(tokens, p++, "(");
+    const [predicate, np1] = parseExpression(tokens, p);
+    p = np1;
+    assertSymbol(tokens, p++, ")");
+    assertSymbol(tokens, p++, "{");
+    const [statements, np2] = parseStatementList(tokens, p);
+    p = np2;
+    assertSymbol(tokens, p++, "}");
+    return [{ type: "while", predicate, statements }, p];
+  } else if (getKeyword(tokens, p) === "do") {
+    assertKeyword(tokens, p++, "do");
+    const [call, np] = parseSubroutineCall(tokens, p);
+    p = np;
+    assertSymbol(tokens, p++, ";");
+    return [{ type: "do", call }, p];
+  } else if (getKeyword(tokens, p) === "return") {
+    assertKeyword(tokens, p++, "return");
+    let expression: Expression | undefined;
+    if (getSymbol(tokens, p) !== ";") {
+      const [e, np] = parseExpression(tokens, p);
+      expression = e;
+      p = np;
+    }
+    return [{ type: "return", expression }, p];
+  } else {
+    throw `invalid statement: ${tokens[p]}`;
+  }
+}
+
+function parseExpression(tokens: Token[], p: number): [Expression, number] {
+  return null as any;
+}
+
+function parseSubroutineCall(
+  tokens: Token[],
+  p: number
+): [SubroutineCall, number] {
+  return null as any;
 }
 
 const tree = analyze(tokens);
