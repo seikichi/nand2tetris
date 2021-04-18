@@ -3,6 +3,7 @@
 *.out
 *.hack
 *.html
+*.xml
 
 node_modules
 06/*/*.asm
@@ -10,9 +11,9 @@ node_modules
 07/*/*/*.vm
 08/*/*/*.asm
 08/*/*/*.vm
+10/**/*.jack
 
 09/
-10/
 11/
 12/
 13/
