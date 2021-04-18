@@ -152,21 +152,27 @@ type ClassVarDec = {
   names: string[];
 };
 
+type Parameter = {
+  type: Type;
+  name: string;
+};
+
+type VarDec = {
+  type: Type;
+  names: string[];
+};
+
+type SubroutineBody = {
+  vars: VarDec[];
+  statements: Statement[];
+};
+
 type SubroutineDec = {
   kind: "constructor" | "function" | "method";
   type: "void" | Type;
   name: string;
-  parameters: {
-    type: Type;
-    name: string;
-  }[];
-  body: {
-    vars: {
-      type: Type;
-      names: string[];
-    }[];
-    statements: Statement[];
-  };
+  parameters: Parameter[];
+  body: SubroutineBody;
 };
 
 type Class = {
@@ -220,72 +226,142 @@ const tokens = tokenize(preprocess(source));
 // const out = toXmlFromTokens(tokens);
 // fs.writeFileSync(OUTPUT_PATH, out);
 
+function assertSymbol(tokens: Token[], p: number, symbol: Symbol) {
+  const token = tokens[p];
+  if (token.type !== "SYMBOL" || token.symbol !== symbol) {
+    throw `invalid token: expect symbol (${symbol}), but given ${token} at ${p}`;
+  }
+}
+
+function assertKeyword(tokens: Token[], p: number, keyword: Keyword) {
+  const token = tokens[p];
+  if (token.type !== "KEYWORD" || token.keyword !== keyword) {
+    throw `invalid token: expect keyword (${keyword}), but given ${token} at ${p}`;
+  }
+}
+
+function getKeywordOrDie(tokens: Token[], p: number): Keyword {
+  const token = tokens[p];
+  if (token.type !== "KEYWORD") {
+    throw `invalid token: expect keyword, but given ${token} at ${p}`;
+  }
+  return token.keyword;
+}
+
+function getKeyword(tokens: Token[], p: number): Keyword | null {
+  const token = tokens[p];
+  if (token.type !== "KEYWORD") {
+    return null;
+  }
+  return token.keyword;
+}
+
+function getSymbolOrDie(tokens: Token[], p: number): Symbol {
+  const token = tokens[p];
+  if (token.type !== "SYMBOL") {
+    throw `invalid token: expect symbol, but given ${token} at ${p}`;
+  }
+  return token.symbol;
+}
+
+function getSymbol(tokens: Token[], p: number): Symbol | null {
+  const token = tokens[p];
+  if (token.type !== "SYMBOL") {
+    return null;
+  }
+  return token.symbol;
+}
+
+function getIdentifierOrDie(tokens: Token[], p: number): string {
+  const token = tokens[p];
+  if (token.type !== "IDENTIFIER") {
+    throw `invalid token: expect identifier, but given ${token} at ${p}`;
+  }
+  return token.identifier;
+}
+
+function getIdentifier(tokens: Token[], p: number): string | null {
+  const token = tokens[p];
+  if (token.type !== "IDENTIFIER") {
+    return null;
+  }
+  return token.identifier;
+}
+
 function analyze(tokens: Token[]): Class {
-  if (tokens[0].type !== "KEYWORD" || tokens[0].keyword !== "class") {
-    throw `invalid tokens: ${tokens[0]}`;
-  }
-  if (tokens[1].type !== "IDENTIFIER") {
-    throw `invalid tokens: ${tokens[1]}`;
-  }
-  const name = tokens[1].identifier;
+  let p = 0;
+
+  assertKeyword(tokens, p++, "class");
+  const name = getIdentifierOrDie(tokens, p++);
+  assertSymbol(tokens, p++, "{");
+
   const classVarDecs: ClassVarDec[] = [];
   const subroutineDecs: SubroutineDec[] = [];
 
-  let p = 3;
   while (isClassVarDec(tokens, p)) {
-    let [dec, np] = analyzeClassVarDec(tokens, p);
+    let [dec, np] = parseClassVarDec(tokens, p);
     classVarDecs.push(dec);
     p = np;
   }
   while (isSubroutineDec(tokens, p)) {
-    let [dec, np] = analyzeSubroutineDec(tokens, p);
+    let [dec, np] = parseSubroutineDec(tokens, p);
     subroutineDecs.push(dec);
     p = np;
   }
-  const last = tokens[p];
-  if (last.type !== "SYMBOL" || last.symbol !== "}") {
-    throw "invalid tokens";
-  }
 
+  assertSymbol(tokens, p++, "}");
   return { name, classVarDecs, subroutineDecs };
 }
 
 function isClassVarDec(tokens: Token[], p: number): boolean {
-  const t = tokens[p];
-  return t.type === "KEYWORD" && ["static", "field"].includes(t.keyword);
+  const keyword = getKeyword(tokens, p);
+  return keyword === "static" || keyword === "field";
 }
 
-function analyzeClassVarDec(tokens: Token[], p: number): [ClassVarDec, number] {
-  let token = tokens[p];
-  if (token.type !== "KEYWORD") {
-    throw "invalid tokens";
-  }
-  const kind = token.keyword as "static" | "field";
-  const [type, _] = parseType(tokens, p + 1);
-  const names = [(tokens[p + 2] as any).identifier];
+function parseClassVarDec(tokens: Token[], p: number): [ClassVarDec, number] {
+  const kind = getKeywordOrDie(tokens, p++) as "static" | "field";
+  const [type, _] = parseType(tokens, p++);
+  const names = [getIdentifierOrDie(tokens, p++)];
 
-  p = p + 3;
-  while ((tokens[p] as any).symbol === ",") {
-    names.push((tokens[p + 1] as any).identifier);
+  while (getSymbol(tokens, p) === ",") {
+    names.push(getIdentifierOrDie(tokens, p + 1));
     p += 2;
   }
-
-  return [{ kind, type, names }, p + 1];
+  assertSymbol(tokens, p++, ";");
+  return [{ kind, type, names }, p];
 }
 
 function isSubroutineDec(tokens: Token[], p: number): boolean {
-  const t = tokens[p];
-  return (
-    t.type === "KEYWORD" &&
-    ["constructor", "function", "method"].includes(t.keyword)
-  );
+  const k = getKeyword(tokens, p);
+  return k === "constructor" || k === "function" || k === "method";
 }
 
-function analyzeSubroutineDec(
+function parseSubroutineDec(
   tokens: Token[],
   p: number
 ): [SubroutineDec, number] {
-  return null as any;
+  const kind = getKeywordOrDie(tokens, p++) as SubroutineDec["kind"];
+  const [type, _] = parseTypeOrVoid(tokens, p++);
+  const name = getIdentifierOrDie(tokens, p++);
+  assertSymbol(tokens, p++, "(");
+
+  const parameters: Parameter[] = [];
+  while (getSymbol(tokens, p) !== ")") {
+    const [type, _] = parseType(tokens, p++);
+    const name = getIdentifierOrDie(tokens, p++);
+    parameters.push({ type, name });
+
+    if (getSymbol(tokens, p) !== ")") {
+      assertSymbol(tokens, p++, ",");
+    }
+  }
+  assertSymbol(tokens, p++, ")");
+
+  // FIXME
+  const [body, np] = parseSubroutineBody(tokens, p);
+  p = np;
+
+  return [{ kind, type, name, parameters, body }, p];
 }
 
 function parseType(tokens: Token[], p: number): [Type, number] {
@@ -304,5 +380,47 @@ function parseType(tokens: Token[], p: number): [Type, number] {
   throw "invalid token";
 }
 
+function parseTypeOrVoid(tokens: Token[], p: number): [Type | "void", number] {
+  if (getKeyword(tokens, p) === "void") {
+    return ["void", p + 1];
+  }
+  return parseType(tokens, p);
+}
+
+function parseSubroutineBody(
+  tokens: Token[],
+  p: number
+): [SubroutineBody, number] {
+  assertSymbol(tokens, p++, "{");
+
+  const vars: VarDec[] = [];
+  while (isVarDec(tokens, p)) {
+    const [varDec, np] = parseVarDec(tokens, p);
+    vars.push(varDec);
+    p = np;
+  }
+  const statements: Statement[] = []; //  FIXME
+
+  assertSymbol(tokens, p++, "}");
+  return [{ vars, statements }, p];
+}
+
+function isVarDec(tokens: Token[], p: number): boolean {
+  return getKeyword(tokens, p) === "var";
+}
+
+function parseVarDec(tokens: Token[], p: number): [VarDec, number] {
+  assertKeyword(tokens, p++, "var");
+  const [type, _] = parseType(tokens, p++);
+  const names = [getIdentifierOrDie(tokens, p++)];
+
+  while (getSymbol(tokens, p) === ",") {
+    names.push(getIdentifierOrDie(tokens, p + 1));
+    p += 2;
+  }
+  assertSymbol(tokens, p++, ";");
+  return [{ type, names }, p];
+}
+
 const tree = analyze(tokens);
-console.log(tree);
+console.log(JSON.stringify(tree, null, 2));
