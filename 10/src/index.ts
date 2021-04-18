@@ -617,4 +617,82 @@ function parseExpressionList(
 }
 
 const tree = analyze(tokens);
-console.log(JSON.stringify(tree, null, 2));
+
+function toXml(klass: Class): string {
+  return `\
+<class>
+  <keyword> class </keyword>
+  <identifier> ${klass.name} </identifier>
+  <symbol> { </symbol>
+    ${klass.classVarDecs.map(toXmlFromClassVarDec).join("\n")}
+    ${klass.subroutineDecs.map(toXmlFromSubroutineDecs).join("\n")}
+  <symbol> } </symbol>
+</class>
+`;
+}
+
+function toXmlFromClassVarDec(dec: ClassVarDec): string {
+  return `\
+  <classVarDec>
+    <keyword> ${dec.kind} </keyword>
+    <keyword> ${dec.type} </keyword>
+    ${dec.names
+      .map((n) => `<identifier> ${n} </identifier>`)
+      .join("<symbol> , </symbol>")}
+    <symbol> ; </symbol>
+  </classVarDec>
+  `;
+}
+
+function toXmlFromSubroutineDecs(dec: SubroutineDec): string {
+  return `\
+  <subroutineDec>
+    <keyword> ${dec.kind} </keyword>
+    <keyword> ${dec.type} </keyword>
+    <identifier> ${dec.name} </identifier>
+    <symbol> ( </symbol>
+    <parameterList>
+      ${dec.parameters.map(toXmlFromParameter).join("<symbol> , </symbol>")}
+    </parameterList>
+    <symbol> ) </symbol>
+    <subroutineBody>
+      <symbol> { </symbol>
+        ${dec.body.vars.map(toXmlFromVarDec).join("\n")}
+        <statements>
+        </statements>
+      <symbol> } </symbol>
+    </subroutineBody>
+  </subroutineDec>
+  `; // ${dec.body.statements.map(toXmlFromStatement).join("\n")}
+}
+
+function toXmlFromParameter(p: Parameter): string {
+  return `<keyword> ${p.type} </keyword><identifier> ${p.name} </identifier>`;
+}
+function toXmlFromVarDec(dec: VarDec): string {
+  return `
+    <varDec>
+      <keyword> var </keyword>
+      ${toXmlFromType(dec.type)}
+      ${dec.names
+        .map((n) => `<identifier> ${n} </identifier>`)
+        .join("<symbol> , </symbol>")}
+        <symbol> ; </symbol>
+    </varDec>
+  `;
+}
+
+function toXmlFromType(t: Type): string {
+  if (t === "int" || t === "char" || t === "boolean") {
+    return `<keyword> ${t} </keyword>`;
+  }
+  return `<identifier> ${t.name} </identifier>`;
+}
+
+function toXmlFromStatement(s: Statement): string {
+  // return `<keyword> ${p.type} </keyword><identifier> ${p.name} </identifier>`;
+  return "";
+}
+
+const out = toXml(tree);
+fs.writeFileSync(OUTPUT_PATH, out);
