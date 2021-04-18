@@ -452,7 +452,8 @@ function parseStatement(tokens: Token[], p: number): [Statement, number] {
     let index: Expression | undefined = undefined;
     if (getSymbol(tokens, p) === "[") {
       assertSymbol(tokens, p++, "[");
-      const [index, np] = parseExpression(tokens, p);
+      const [e, np] = parseExpression(tokens, p);
+      index = e;
       p = np;
       assertSymbol(tokens, p++, "]");
     }
@@ -704,6 +705,7 @@ function toXmlFromStatement(s: Statement): string {
       ${index}
       <symbol> = </symbol>
       ${toXmlFromExpression(s.expression)}
+      <symbol> ; </symbol>
     </letStatement>
     `;
   }
@@ -800,7 +802,7 @@ function toXmlFromTerm(t: Term): string {
     </term>`;
   }
   if (t.type === "subroutine") {
-    return toXmlFromSubroutineCall(t);
+    return `<term>${toXmlFromSubroutineCall(t)}</term>`;
   }
   if (t.type === "unary") {
     return `
