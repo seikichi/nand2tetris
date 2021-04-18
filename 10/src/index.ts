@@ -635,7 +635,7 @@ function toXmlFromClassVarDec(dec: ClassVarDec): string {
   return `\
   <classVarDec>
     <keyword> ${dec.kind} </keyword>
-    <keyword> ${dec.type} </keyword>
+    ${toXmlFromType(dec.type)}
     ${dec.names
       .map((n) => `<identifier> ${n} </identifier>`)
       .join("<symbol> , </symbol>")}
@@ -648,7 +648,7 @@ function toXmlFromSubroutineDecs(dec: SubroutineDec): string {
   return `\
   <subroutineDec>
     <keyword> ${dec.kind} </keyword>
-    <keyword> ${dec.type} </keyword>
+    ${toXmlFromType(dec.type)}
     <identifier> ${dec.name} </identifier>
     <symbol> ( </symbol>
     <parameterList>
@@ -668,7 +668,7 @@ function toXmlFromSubroutineDecs(dec: SubroutineDec): string {
 }
 
 function toXmlFromParameter(p: Parameter): string {
-  return `<keyword> ${p.type} </keyword><identifier> ${p.name} </identifier>`;
+  return `${toXmlFromType(p.type)}<identifier> ${p.name} </identifier>`;
 }
 function toXmlFromVarDec(dec: VarDec): string {
   return `
@@ -683,8 +683,8 @@ function toXmlFromVarDec(dec: VarDec): string {
   `;
 }
 
-function toXmlFromType(t: Type): string {
-  if (t === "int" || t === "char" || t === "boolean") {
+function toXmlFromType(t: Type | "void"): string {
+  if (t === "int" || t === "char" || t === "boolean" || t === "void") {
     return `<keyword> ${t} </keyword>`;
   }
   return `<identifier> ${t.name} </identifier>`;
@@ -768,15 +768,74 @@ function toXmlFromStatement(s: Statement): string {
 }
 
 function toXmlFromExpression(e: Expression): string {
-  return "";
+  return `
+  <expression>
+    ${toXmlFromTerm(e.head)}
+    ${e.tail
+      .map(
+        ({ op, term }) =>
+          `<symbol> ${escapeXml(op)} </symbol>${toXmlFromTerm(term)}`
+      )
+      .join("\n")}
+  </expression>
+  `;
 }
 
 function toXmlFromTerm(t: Term): string {
-  return "";
+  if (t.type === "integer") {
+    return `<term><integerConstant> ${t.val} </integerConstant></term>`;
+  }
+  if (t.type === "string") {
+    return `<term><stringConstant> ${t.val} </stringConstant></term>`;
+  }
+  if (t.type === "keyword") {
+    return `<term><keyword> ${t.val} </keyword></term>`;
+  }
+  if (t.type === "expression") {
+    return `
+    <term>
+    <symbol> ( </symbol>
+      ${toXmlFromExpression(t.expression)}
+    <symbol> ) </symbol>
+    </term>`;
+  }
+  if (t.type === "subroutine") {
+    return toXmlFromSubroutineCall(t);
+  }
+  if (t.type === "unary") {
+    return `
+    <term>
+    <symbol> ${escapeXml(t.op)} </symbol>${toXmlFromTerm(t.term)}
+    </term>`;
+  }
+  // var
+  const index = t.index
+    ? `<symbol> [ </symbol>${toXmlFromExpression(t.index)}<symbol> ] </symbol>`
+    : "";
+  return `
+    <term>
+      <identifier> ${t.name} </identifier>
+      ${index}
+    </term>
+  `;
 }
 
 function toXmlFromSubroutineCall(t: SubroutineCall): string {
-  return "";
+  const context = t.context
+    ? `
+  <identifier> ${t.context} </identifier>
+  <symbol> . </symbol>
+  `
+    : "";
+  return `
+  ${context}
+  <identifier> ${t.name} </identifier>
+  <symbol> ( </symbol>
+    <expressionList>
+    ${t.parameters.map(toXmlFromExpression).join("<symbol> , </symbol>")}
+    </expressionList>
+  <symbol> ) </symbol>
+  `;
 }
 
 const out = toXml(tree);
