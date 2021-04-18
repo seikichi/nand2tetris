@@ -211,6 +211,7 @@ type Term =
   | { type: "keyword"; val: "true" | "false" | "null" | "this" }
   | { type: "var"; name: string; index?: Expression }
   | SubroutineCall
+  | { type: "expression"; expression: Expression }
   | { type: "unary"; op: UnaryOperation; term: Term };
 
 if (process.argv.length !== 3) {
@@ -229,21 +230,27 @@ const tokens = tokenize(preprocess(source));
 function assertSymbol(tokens: Token[], p: number, symbol: Symbol) {
   const token = tokens[p];
   if (token.type !== "SYMBOL" || token.symbol !== symbol) {
-    throw `invalid token: expect symbol (${symbol}), but given ${token} at ${p}`;
+    throw `invalid token: expect symbol (${symbol}), but given ${JSON.stringify(
+      token
+    )} at ${p}`;
   }
 }
 
 function assertKeyword(tokens: Token[], p: number, keyword: Keyword) {
   const token = tokens[p];
   if (token.type !== "KEYWORD" || token.keyword !== keyword) {
-    throw `invalid token: expect keyword (${keyword}), but given ${token} at ${p}`;
+    throw `invalid token: expect keyword (${keyword}), but given ${JSON.stringify(
+      token
+    )} at ${p}`;
   }
 }
 
 function getKeywordOrDie(tokens: Token[], p: number): Keyword {
   const token = tokens[p];
   if (token.type !== "KEYWORD") {
-    throw `invalid token: expect keyword, but given ${token} at ${p}`;
+    throw `invalid token: expect keyword, but given ${JSON.stringify(
+      token
+    )} at ${p}`;
   }
   return token.keyword;
 }
@@ -259,7 +266,9 @@ function getKeyword(tokens: Token[], p: number): Keyword | null {
 function getSymbolOrDie(tokens: Token[], p: number): Symbol {
   const token = tokens[p];
   if (token.type !== "SYMBOL") {
-    throw `invalid token: expect symbol, but given ${token} at ${p}`;
+    throw `invalid token: expect symbol, but given ${JSON.stringify(
+      token
+    )} at ${p}`;
   }
   return token.symbol;
 }
@@ -275,7 +284,9 @@ function getSymbol(tokens: Token[], p: number): Symbol | null {
 function getIdentifierOrDie(tokens: Token[], p: number): string {
   const token = tokens[p];
   if (token.type !== "IDENTIFIER") {
-    throw `invalid token: expect identifier, but given ${token} at ${p}`;
+    throw `invalid token: expect identifier, but given ${JSON.stringify(
+      token
+    )} at ${p}`;
   }
   return token.identifier;
 }
@@ -460,9 +471,9 @@ function parseStatement(tokens: Token[], p: number): [Statement, number] {
     const [consequent, np2] = parseStatementList(tokens, p);
     p = np2;
     assertSymbol(tokens, p++, "}");
-
     let alternative: Statement[] | undefined = undefined;
     if (getKeyword(tokens, p) === "else") {
+      assertKeyword(tokens, p++, "else");
       assertSymbol(tokens, p++, "{");
       const [expression, np3] = parseStatementList(tokens, p);
       alternative = expression;
@@ -495,6 +506,7 @@ function parseStatement(tokens: Token[], p: number): [Statement, number] {
       expression = e;
       p = np;
     }
+    assertSymbol(tokens, p++, ";");
     return [{ type: "return", expression }, p];
   } else {
     throw `invalid statement: ${tokens[p]}`;
@@ -502,14 +514,106 @@ function parseStatement(tokens: Token[], p: number): [Statement, number] {
 }
 
 function parseExpression(tokens: Token[], p: number): [Expression, number] {
-  return null as any;
+  const [head, np] = parseTerm(tokens, p);
+  p = np;
+  const tail: Expression["tail"] = [];
+
+  while (operations.includes(getSymbol(tokens, p) as any)) {
+    const op = getSymbolOrDie(tokens, p++) as Operation;
+    const [term, np] = parseTerm(tokens, p);
+    p = np;
+    tail.push({ op, term });
+  }
+  return [{ head, tail }, p];
+}
+
+function parseTerm(tokens: Token[], p: number): [Term, number] {
+  const token = tokens[p];
+  if (token.type === "INT_CONST") {
+    return [{ type: "integer", val: token.val }, p + 1];
+  } else if (token.type === "STRING_CONST") {
+    return [{ type: "string", val: token.val }, p + 1];
+  } else if (token.type === "KEYWORD") {
+    const keyword = token.keyword;
+    if (!["true", "false", "null", "this"].includes(keyword)) {
+      throw `invalid keyword: ${keyword}`;
+    }
+    return [{ type: "keyword", val: keyword as any }, p + 1];
+  } else if (token.type === "IDENTIFIER") {
+    if (p + 1 < tokens.length && getSymbol(tokens, p + 1) === "(") {
+      return parseSubroutineCall(tokens, p);
+    }
+    if (p + 1 < tokens.length && getSymbol(tokens, p + 1) === ".") {
+      return parseSubroutineCall(tokens, p);
+    }
+    if (p + 1 < tokens.length && getSymbol(tokens, p + 1) === "[") {
+      const name = getIdentifierOrDie(tokens, p++);
+      assertSymbol(tokens, p++, "[");
+      const [index, np] = parseExpression(tokens, p);
+      p = np;
+      assertSymbol(tokens, p++, "]");
+      return [{ type: "var", index, name }, p];
+    } else {
+      return [{ type: "var", name: getIdentifierOrDie(tokens, p) }, p + 1];
+    }
+  } else if (getSymbol(tokens, p) === "(") {
+    assertSymbol(tokens, p++, "(");
+    const [expression, np] = parseExpression(tokens, p);
+    p = np;
+    assertSymbol(tokens, p++, ")");
+    return [{ type: "expression", expression }, p];
+  } else if (
+    token.type === "SYMBOL" &&
+    unaryOperations.includes(token.symbol as any)
+  ) {
+    p++;
+    const [term, np] = parseTerm(tokens, p);
+    p = np;
+    return [{ type: "unary", op: token.symbol as any, term }, p];
+  }
+  throw `invalid term: ${JSON.stringify(tokens[p])}`;
 }
 
 function parseSubroutineCall(
   tokens: Token[],
   p: number
 ): [SubroutineCall, number] {
-  return null as any;
+  if (getSymbol(tokens, p + 1) !== ".") {
+    const name = getIdentifierOrDie(tokens, p++);
+    assertSymbol(tokens, p++, "(");
+    const [parameters, np] = parseExpressionList(tokens, p);
+    assertSymbol(tokens, p++, ")");
+    return [{ type: "subroutine", name, parameters }, p];
+  } else {
+    const context = getIdentifierOrDie(tokens, p++);
+    assertSymbol(tokens, p++, ".");
+    const name = getIdentifierOrDie(tokens, p++);
+    assertSymbol(tokens, p++, "(");
+    const [parameters, np] = parseExpressionList(tokens, p);
+    p = np;
+    assertSymbol(tokens, p++, ")");
+    return [{ type: "subroutine", context, name, parameters }, p];
+  }
+}
+
+function parseExpressionList(
+  tokens: Token[],
+  p: number
+): [Expression[], number] {
+  if (getSymbol(tokens, p) === ")") {
+    return [[], p];
+  }
+  const [first, np] = parseExpression(tokens, p);
+  p = np;
+
+  const expressions = [first];
+  while (getSymbol(tokens, p) === ",") {
+    assertSymbol(tokens, p++, ",");
+    const [e, np] = parseExpression(tokens, p);
+    expressions.push(e);
+    p = np;
+  }
+  return [expressions, p];
 }
 
 const tree = analyze(tokens);
