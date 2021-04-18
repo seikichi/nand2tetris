@@ -659,11 +659,12 @@ function toXmlFromSubroutineDecs(dec: SubroutineDec): string {
       <symbol> { </symbol>
         ${dec.body.vars.map(toXmlFromVarDec).join("\n")}
         <statements>
+          ${dec.body.statements.map(toXmlFromStatement).join("\n")}
         </statements>
       <symbol> } </symbol>
     </subroutineBody>
   </subroutineDec>
-  `; // ${dec.body.statements.map(toXmlFromStatement).join("\n")}
+  `;
 }
 
 function toXmlFromParameter(p: Parameter): string {
@@ -690,7 +691,91 @@ function toXmlFromType(t: Type): string {
 }
 
 function toXmlFromStatement(s: Statement): string {
-  // return `<keyword> ${p.type} </keyword><identifier> ${p.name} </identifier>`;
+  if (s.type === "let") {
+    const index = s.index
+      ? `<symbol> [ </symbol>${toXmlFromExpression(
+          s.index
+        )}<symbol> ] </symbol>`
+      : "";
+    return `
+    <letStatement>
+      <keyword> let </keyword>
+      <identifier> ${s.name} </identifier>
+      ${index}
+      <symbol> = </symbol>
+      ${toXmlFromExpression(s.expression)}
+    </letStatement>
+    `;
+  }
+  if (s.type === "if") {
+    const alternative = s.alternative
+      ? `
+    <keyword> else </keyword>
+    <symbol> { </symbol>
+      <statements>
+        ${s.alternative.map(toXmlFromStatement).join("\n")}
+      </statements>
+    <symbol> } </symbol>
+    `
+      : "";
+    return `
+    <ifStatement>
+      <keyword> if </keyword>
+      <symbol> ( </symbol>
+        ${toXmlFromExpression(s.predicate)}
+      <symbol> ) </symbol>
+      <symbol> { </symbol>
+        <statements>
+          ${s.consequent.map(toXmlFromStatement).join("\n")}
+        </statements>
+      <symbol> } </symbol>
+      ${alternative}
+    </ifStatement>
+    `;
+  }
+  if (s.type === "while") {
+    return `
+    <whileStatement>
+      <keyword> while </keyword>
+      <symbol> ( </symbol>
+        ${toXmlFromExpression(s.predicate)}
+      <symbol> ) </symbol>
+      <symbol> { </symbol>
+        <statements>
+          ${s.statements.map(toXmlFromStatement).join("\n")}
+        </statements>
+      <symbol> } </symbol>
+    </whileStatement>
+    `;
+  }
+  if (s.type === "do") {
+    return `
+    <doStatement>
+      <keyword> do </keyword>
+      ${toXmlFromSubroutineCall(s.call)}
+      <symbol> ; </symbol>
+    </doStatement>
+    `;
+  }
+  // return
+  return `
+  <returnStatement>
+    <keyword> return </keyword>
+    ${s.expression ? toXmlFromExpression(s.expression) : ""}
+    <symbol> ; </symbol>
+  </returnStatement>
+  `;
+}
+
+function toXmlFromExpression(e: Expression): string {
+  return "";
+}
+
+function toXmlFromTerm(t: Term): string {
+  return "";
+}
+
+function toXmlFromSubroutineCall(t: SubroutineCall): string {
   return "";
 }
 
