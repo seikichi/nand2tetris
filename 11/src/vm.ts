@@ -40,5 +40,8 @@ export function showCommand(command: Command): string {
   if (command.type === "return") {
     return `${command.type}`;
   }
+  if (command.type === "arithmetic") {
+    return command.args[0];
+  }
   return `${command.type} ${command.args.map((a: any) => `${a}`).join(" ")}`;
 }
