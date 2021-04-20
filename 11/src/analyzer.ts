@@ -6,7 +6,7 @@ const unaryOperations = ["-", "~"] as const;
 export type Operation = typeof operations[number];
 export type UnaryOperation = typeof unaryOperations[number];
 
-export type Type = "int" | "char" | "boolean" | { type: "class"; name: string };
+export type Type = string;
 
 export type ClassVarDec = {
   kind: "static" | "field";
@@ -221,11 +221,11 @@ function parseType(tokens: Token[], p: number): [Type, number] {
     token.type === "KEYWORD" &&
     ["int", "char", "boolean"].includes(token.keyword)
   ) {
-    return [token.keyword as Type, p + 1];
+    return [token.keyword, p + 1];
   }
 
   if (token.type === "IDENTIFIER") {
-    return [{ type: "class", name: token.identifier }, p + 1];
+    return [token.identifier, p + 1];
   }
 
   throw "invalid token";
