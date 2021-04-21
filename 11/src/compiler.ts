@@ -94,9 +94,18 @@ function* compileStatement(
 
   switch (s.type) {
     case "let":
-      assert(!s.index, "index not supported");
-      yield* compileExpression(s.expression, table);
-      yield compileSymbol(table[s.name]!, "pop");
+      if (s.index) {
+        yield compileSymbol(table[s.name]!, "push");
+        yield* compileExpression(s.index, table);
+        yield { type: "arithmetic", args: ["add"] };
+        yield { type: "pop", args: ["pointer", 1] };
+
+        yield* compileExpression(s.expression, table);
+        yield { type: "pop", args: ["that", 0] };
+      } else {
+        yield* compileExpression(s.expression, table);
+        yield compileSymbol(table[s.name]!, "pop");
+      }
       break;
 
     case "if":
@@ -196,8 +205,13 @@ function* compileTerm(t: Term, table: SymbolTable): Iterable<Command> {
       yield* compileSubroutineCall(t, table);
       break;
     case "var":
-      assert(!t.index, "index not supported");
       yield compileSymbol(table[t.name]!, "push");
+      if (t.index) {
+        yield* compileExpression(t.index, table);
+        yield { type: "arithmetic", args: ["add"] };
+        yield { type: "pop", args: ["pointer", 1] };
+        yield { type: "push", args: ["that", 0] };
+      }
       break;
     case "unary":
       const op = ({ "-": "neg", "~": "not" } as const)[t.op];
@@ -208,8 +222,13 @@ function* compileTerm(t: Term, table: SymbolTable): Iterable<Command> {
       yield* compileKeyword(t.val);
       break;
     case "string":
-    default:
-      assert(false, `${t.type} not supported`);
+      yield { type: "push", args: ["constant", t.val.length] };
+      yield { type: "call", args: ["String.new", 1] };
+      for (const c of t.val) {
+        yield { type: "push", args: ["constant", c.charCodeAt(0)] };
+        yield { type: "call", args: ["String.appendChar", 2] };
+      }
+      break;
   }
 }
 
