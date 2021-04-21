@@ -94,16 +94,15 @@ function* compileStatement(
 
   switch (s.type) {
     case "let":
+      yield* compileExpression(s.expression, table);
+
       if (s.index) {
         yield compileSymbol(table[s.name]!, "push");
         yield* compileExpression(s.index, table);
         yield { type: "arithmetic", args: ["add"] };
         yield { type: "pop", args: ["pointer", 1] };
-
-        yield* compileExpression(s.expression, table);
         yield { type: "pop", args: ["that", 0] };
       } else {
-        yield* compileExpression(s.expression, table);
         yield compileSymbol(table[s.name]!, "pop");
       }
       break;
