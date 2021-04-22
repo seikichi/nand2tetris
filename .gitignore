@@ -4,6 +4,7 @@
 *.hack
 *.html
 *.xml
+*.gif
 
 node_modules
 06/*/*.asm
@@ -14,7 +15,8 @@ node_modules
 10/**/*.jack
 11/**/*.vm
 11/**/*.jack
+12/*/**/*.jack
+12/*/**/*.txt
 
 09/
-12/
 13/
