@@ -12,7 +12,8 @@ import {
 } from "./analyzer";
 import { Command, SEGMENT_TYPE } from "./vm";
 
-type Kind = "static" | "field" | "argument" | "var";
+// TODO: remove "this" from this definition
+type Kind = "static" | "field" | "argument" | "var" | "this";
 type Symbol = { type: Type; kind: Kind; index: number };
 type SymbolTable = { [name: string]: Symbol | undefined };
 
@@ -47,6 +48,9 @@ function createSymbolTable(
   if (subroutineDec.kind === "method") {
     table["this"] = { type: klass.name, kind: "argument", index: index++ };
   }
+  if (subroutineDec.kind === "constructor") {
+    table["this"] = { type: klass.name, kind: "this", index: 0 };
+  }
   for (const { name, type } of subroutineDec.parameters) {
     table[name] = { type, kind: "argument", index: index++ };
   }
@@ -63,6 +67,10 @@ function createSymbolTable(
 }
 
 export function* compile(klass: Class): Iterable<Command> {
+  const nfields = klass.classVarDecs
+    .map((d) => d.names.length)
+    .reduce((sum, n) => sum + n, 0);
+
   for (const dec of klass.subroutineDecs) {
     const name = `${klass.name}.${dec.name}`;
     const table = createSymbolTable(klass, dec);
@@ -72,6 +80,11 @@ export function* compile(klass: Class): Iterable<Command> {
 
     if (dec.kind === "method") {
       yield { type: "push", args: ["argument", 0] };
+      yield { type: "pop", args: ["pointer", 0] };
+    }
+    if (dec.kind === "constructor") {
+      yield { type: "push", args: ["constant", nfields] };
+      yield { type: "call", args: ["Memory.alloc", 1] };
       yield { type: "pop", args: ["pointer", 0] };
     }
 
@@ -262,6 +275,8 @@ function compileSymbol(s: Symbol, type: "push" | "pop"): Command {
       return { type, args: ["argument", s.index] };
     case "var":
       return { type, args: ["local", s.index] };
+    case "this":
+      return { type, args: ["pointer", 0] };
   }
 }
 
@@ -269,12 +284,18 @@ function* compileSubroutineCall(
   s: SubroutineCall,
   table: SymbolTable
 ): Iterable<Command> {
-  assert(!!s.context, "no context not supported");
+  const self = table[s.context || "this"];
+  assert(self || s.context, `method self not found: ${JSON.stringify(s)}`);
+
+  if (self) {
+    yield compileSymbol(self, "push");
+  }
 
   for (const p of s.parameters) {
     yield* compileExpression(p, table);
   }
 
-  const name = `${s.context}.${s.name}`;
-  yield { type: "call", args: [name, s.parameters.length] };
+  const nargs = s.parameters.length + (self ? 1 : 0);
+  const name = `${self ? self.type : s.context}.${s.name}`;
+  yield { type: "call", args: [name, nargs] };
 }
