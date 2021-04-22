@@ -423,6 +423,7 @@ function parseSubroutineCall(
     const name = getIdentifierOrDie(tokens, p++);
     assertSymbol(tokens, p++, "(");
     const [parameters, np] = parseExpressionList(tokens, p);
+    p = np;
     assertSymbol(tokens, p++, ")");
     return [{ type: "subroutine", name, parameters }, p];
   } else {
