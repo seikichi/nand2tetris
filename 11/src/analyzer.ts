@@ -350,7 +350,7 @@ function parseStatement(tokens: Token[], p: number): [Statement, number] {
     assertSymbol(tokens, p++, ";");
     return [{ type: "return", expression }, p];
   } else {
-    throw `invalid statement: ${tokens[p]}`;
+    throw `invalid statement: ${JSON.stringify(tokens[p])}`;
   }
 }
 

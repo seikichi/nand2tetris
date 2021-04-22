@@ -17,6 +17,7 @@ node_modules
 11/**/*.jack
 12/*/**/Main.jack
 12/*/**/*.txt
+12/**/*.vm
 
 09/
 13/
