@@ -11,36 +11,25 @@
 // "white" in every pixel;
 // the screen should remain fully clear as long as no key is pressed.
 
-// Put your code here.
-(MAIN)
-        // D = input();
-        @KBD
-        D=M
-        // goto BLACK if D > 0
-        @BLACK
-        D;JGT
-(WHITE)
-        // D = 256 * (512 / 16) - 1 = 8191
-        @8191
-        D=A
-(WLOOP)
-        // M[SCREEN + D] = 0
-        @SCREEN
-        A=D+A
-        M=0
-        // D = D - 1; goto WLOOP if D >= 0
-        @WLOOP
-        D=D-1;JGE
-        @MAIN
-        0;JMP
-(BLACK)
-        @8191
-        D=A
-(BLOOP)
-        @SCREEN
-        A=D+A
-        M=-1
-        @BLOOP
-        D=D-1;JGE
-        @MAIN
-        0;JMP
+    @KBD      // IMPORTANT: the address of this line is 0
+    AD=M      // A = D = M[KBD]
+    D;JEQ     // goto 0 if D = 0 (NOTE: D = 0 -> A = 0)
+(TOGGLE)
+    @8191     // D = 256 * (512 / 16) - 1 = 8191
+    D=A
+(LOOP)
+    @SCREEN   // M[SCREEN + D] = !M[SCREEN + D]
+    A=D+A
+    M=!M
+    @LOOP     // D = D - 1; goto LOOP if D >= 0
+    D=D-1;JGE
+    @SCREEN   // goto 0 if MEMORY[SCREEN] = 0
+    AD=M
+    D;JEQ
+(PRESSED)
+    @KBD
+    D=M
+    @PRESSED  // goto PRESSED if D > 0
+    D;JGT
+    @TOGGLE   // otherwise, goto TOGGLE
+    0;JMP
