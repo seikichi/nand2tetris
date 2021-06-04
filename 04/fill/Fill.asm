@@ -12,8 +12,8 @@
 // the screen should remain fully clear as long as no key is pressed.
 
     @KBD      // IMPORTANT: the address of this line is 0
-    AD=M      // A = D = M[KBD]
-    D;JEQ     // goto 0 if D = 0 (NOTE: D = 0 -> A = 0)
+    A=M      // A = M[KBD]
+    A;JEQ     // goto 0 if A = 0
 (TOGGLE)
     @8191     // D = 256 * (512 / 16) - 1 = 8191
     D=A
@@ -24,8 +24,8 @@
     @LOOP     // D = D - 1; goto LOOP if D >= 0
     D=D-1;JGE
     @SCREEN   // goto 0 if MEMORY[SCREEN] = 0
-    AD=M
-    D;JEQ
+    A=M
+    A;JEQ
 (PRESSED)
     @KBD
     D=M
