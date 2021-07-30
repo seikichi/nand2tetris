@@ -12,7 +12,7 @@
 // the screen should remain fully clear as long as no key is pressed.
 
     @KBD      // IMPORTANT: the address of this line is 0
-    A=M      // A = M[KBD]
+    A=M       // A = M[KBD]
     A;JEQ     // goto 0 if A = 0
 (TOGGLE)
     @8191     // D = 256 * (512 / 16) - 1 = 8191
