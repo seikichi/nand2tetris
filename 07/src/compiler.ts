@@ -1,12 +1,11 @@
 import { HackOperation } from "./hack";
-import { Command } from "./vm";
+import { Command, SEGMENT_TYPE } from "./vm";
 
 function compileCommand(
   command: Command,
   filename: string,
   uniqueNumber: number
 ): HackOperation[] {
-  // ARITHMETIC
   if (command.type === "ARITHMETIC") {
     const op = command.args[0];
 
@@ -18,31 +17,23 @@ function compileCommand(
     }
 
     if (op === "add" || op === "sub" || op == "and" || op === "or") {
-      return [
-        "@SP",
-        "M=M-1",
-        "A=M",
-        "D=M",
-        "A=A-1",
-        (
-          {
-            add: "M=D+M",
-            sub: "M=M-D",
-            and: "M=D&M",
-            or: "M=D|M",
-          } as const
-        )[op],
-      ];
+      const op2asm = {
+        add: "M=D+M",
+        sub: "M=M-D",
+        and: "M=D&M",
+        or: "M=D|M",
+      } as const;
+
+      return ["@SP", "M=M-1", "A=M", "D=M", "A=A-1", op2asm[op]];
     }
 
     const label = `$ARITHMETIC.${filename}.${uniqueNumber}`;
-    const jump = (
-      {
-        eq: "JEQ",
-        lt: "JLT",
-        gt: "JGT",
-      } as const
-    )[op];
+    const op2jump = {
+      eq: "JEQ",
+      lt: "JLT",
+      gt: "JGT",
+    } as const;
+
     return [
       "@SP",
       "M=M-1",
@@ -52,7 +43,7 @@ function compileCommand(
       "D=M-D",
       "M=-1",
       `@${label}`,
-      `D;${jump}`,
+      `D;${op2jump[op]}`,
       "@SP",
       "A=M-1",
       "M=0",
@@ -60,60 +51,47 @@ function compileCommand(
     ];
   }
 
-  // PUSH
   if (command.type === "PUSH") {
     const [segment, index] = command.args;
-    return [
-      ...(
-        {
-          argument: ["@ARG", "D=M", `@${index}`, "A=D+A", "D=M"],
-          local: ["@LCL", "D=M", `@${index}`, "A=D+A", "D=M"],
-          this: ["@THIS", "D=M", `@${index}`, "A=D+A", "D=M"],
-          that: ["@THAT", "D=M", `@${index}`, "A=D+A", "D=M"],
-          constant: [`@${index}`, "D=A"],
-          static: [`@${filename}.${index}`, "D=M"],
-          pointer: [["@THIS", "@THAT"][index], "D=M"],
-          temp: [`@R${index + 5}`, "D=M"],
-        } as { [segment: string]: HackOperation[] }
-      )[segment],
-      "@SP",
-      "M=M+1",
-      "A=M-1",
-      "M=D",
-    ];
+    const seg2ops: { [s in SEGMENT_TYPE]: HackOperation[] } = {
+      argument: ["@ARG", "D=M", `@${index}`, "A=D+A", "D=M"],
+      local: ["@LCL", "D=M", `@${index}`, "A=D+A", "D=M"],
+      this: ["@THIS", "D=M", `@${index}`, "A=D+A", "D=M"],
+      that: ["@THAT", "D=M", `@${index}`, "A=D+A", "D=M"],
+      constant: [`@${index}`, "D=A"],
+      static: [`@${filename}.${index}`, "D=M"],
+      pointer: [(["@THIS", "@THAT"] as const)[index], "D=M"],
+      temp: [`@R${index + 5}`, "D=M"],
+    };
+
+    return [...seg2ops[segment], "@SP", "M=M+1", "A=M-1", "M=D"];
   }
-  // POP
+
   if (command.type === "POP") {
     const [segment, index] = command.args;
     if (segment === "constant") {
       throw `Invalid POP: ${command}`;
     }
+
     if (segment === "static" || segment === "pointer" || segment === "temp") {
-      return [
-        "@SP",
-        "M=M-1",
-        "A=M",
-        "D=M",
-        (
-          {
-            static: `@${filename}.${index}`,
-            pointer: ["@THIS", "@THAT"][index],
-            temp: `@R${index + 5}`,
-          } as { [segment: string]: HackOperation }
-        )[segment],
-        "M=D",
-      ];
+      const seg2addr = {
+        static: `@${filename}.${index}`,
+        pointer: (["@THIS", "@THAT"] as const)[index],
+        temp: `@R${index + 5}`,
+      } as const;
+
+      return ["@SP", "M=M-1", "A=M", "D=M", seg2addr[segment], "M=D"];
     }
 
+    const seg2addr = {
+      argument: "@ARG",
+      local: "@LCL",
+      this: "@THIS",
+      that: "@THAT",
+    } as const;
+
     return [
-      (
-        {
-          argument: "@ARG",
-          local: "@LCL",
-          this: "@THIS",
-          that: "@THAT",
-        } as { [segment: string]: HackOperation }
-      )[segment],
+      seg2addr[segment],
       "D=M",
       `@${index}`,
       "D=D+A",
